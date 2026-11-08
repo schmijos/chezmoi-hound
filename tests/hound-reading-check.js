@@ -44,5 +44,18 @@ check("an oversized reading is refused", !r.ok)
 r = Reading.parse(reading(counts.concat([["file", "<b>&bold</b>"]])))
 check("markup is stripped from what the tooltip shows", r.detail[0] === "bbold/b")
 
+// What the panel shows is cleaned up for the tooltip; what Apply and Ignore act
+// on must be the path chezmoi reported, or a different file is acted on.
+const odd = ".config/a&b<c>.conf"
+const long = ".config/" + "d/".repeat(120) + "file"
+r = Reading.parse(reading(counts.map(c => c[0] === "home" || c[0] === "total" ? [c[0], "2"] : c)
+  .concat([["file", odd], ["file", long]])))
+check("an action acts on the path chezmoi reported, not the cleaned-up one",
+  r.ok && Array.isArray(r.detailPaths) && r.detailPaths[0] === odd)
+check("an action acts on a long path in full, not cut at 200 characters",
+  r.ok && Array.isArray(r.detailPaths) && r.detailPaths[1] === long)
+check("every listed path has the path an action uses",
+  r.ok && Array.isArray(r.detailPaths) && r.detailPaths.length === r.detail.length)
+
 console.log("\n" + pass + " ok, " + fail + " failed")
 process.exit(fail === 0 ? 0 : 1)
