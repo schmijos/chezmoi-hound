@@ -229,6 +229,10 @@ Panel {
     saveProc.running = true
   }
 
+  function ipcSettable(key) {
+    return key === "checkSeconds" || key === "whenClean"
+  }
+
   // ---- actions ------------------------------------------------------------
 
   // Both buttons go through here, so there is exactly one place that decides
@@ -1445,49 +1449,21 @@ Panel {
     // hand on the mouse: "repo" opens it under the repo's own button.
     function commit(where: string): void { root.askCommit(where) }
 
-    // Commit with a message decided elsewhere, which is the same path the entry's
-    // Commit button takes: the message is what runAction hands the script.
-    function commitWith(message: string): void {
-      root.lastMessage = message
-      root.asking = false
-      root.runAction("commit")
-    }
-    function push(): void { root.runAction("push") }
-
-    // The ignore button asks first for the same reason: `ignore` arms the
-    // confirm the way a press does, `ignoreNow` carries it through.
+    // Any process of this user can call these, so none of them commits, pushes,
+    // writes or takes anything back: each only arms the confirm a press would,
+    // and the second press stays a person's.
     function ignore(): void { root.askIgnore() }
-    function ignoreNow(): void {
-      root.askIgnore()
-      root.runIgnore()
-    }
-
-    // Apply is the one action that writes to $HOME, so it asks first too:
-    // `applySource` arms the confirm, `applySourceNow` carries it through for a
-    // script or a keybind with nobody to press the second button.
     function applySource(): void { root.askApply() }
-    function applySourceNow(): void {
-      root.askApply()
-      root.runApply()
-    }
-
-    // The undo button asks first, so these do too: `undo` arms the confirm the
-    // same way a press on the row does, and `undoNow` carries it through for a
-    // script or a keybind that has nobody to press the second button.
     function undo(sha: string): void { root.askUndo(sha) }
-    function undoNow(sha: string): void {
-      root.askUndo(sha)
-      root.runUndo()
-    }
 
     // Full details is a button; this is the scriptable path to the same
     // floating terminal, so the read-out can be opened without a click.
     function details(): void { root.showDetails() }
 
-    // The same write the panel's own fields make, so the path can be
-    // exercised without a hand on the mouse.
+    // Only the settings that cannot point chezmoi at another tree: sourceDir
+    // over IPC would make the next timer tick run that tree's templates.
     function settingsApply(key: string, value: string): void {
-      root.saveSetting(key, value)
+      if (root.ipcSettable(key)) root.saveSetting(key, value)
     }
 
     // The settings view is a view, not a mode: this opens and closes it.
@@ -1496,9 +1472,8 @@ Panel {
       return "settingsOpen=" + root.settingsOpen
     }
 
-    // The same write the fields make, so an option can be set without typing
-    // into a field: settingsSet("checkSeconds", "300").
     function settingsSet(key: string, value: string): string {
+      if (!root.ipcSettable(key)) return "refused: " + key + " is set from the panel only"
       root.saveSetting(key, value)
       return key + "=" + value
     }
