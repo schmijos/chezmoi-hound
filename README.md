@@ -154,6 +154,14 @@ with no message at all, which the panel says under the entry beforehand.
   in the entry. Leave the entry empty and the commit carries no message. It also
   commits tracked edits already sitting in the source repo (`git add -u`) —
   never untracked stray files.
+- A target chezmoi finds a **secret** in is not captured. Each `chezmoi add`
+  runs with `--secrets error`, so a token that crept into a dotfile is reported as
+  *could not capture*, with chezmoi's reason, instead of being committed and then
+  pushed.
+- **Add to .chezmoiignore** writes literal paths only. chezmoi reads that file as
+  a template, and every line in it as a glob, so a path holding `{{`, `*`, `?`,
+  `[`, `{`, `\`, or starting with `!` or `#` is reported as *not a literal path*
+  and left out.
 - A target whose source is a **template** (`*.tmpl`) is reported and left alone.
   Re-adding a template would overwrite the template with this machine's rendered
   output and stop it being a template.

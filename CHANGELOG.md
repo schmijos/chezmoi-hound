@@ -6,6 +6,25 @@
   `suggest` action and its `bubblewrap` sandbox are removed. The message entry is
   filled by the person committing and nothing else, and nothing leaves the machine
   except **Push**. `bubblewrap` is no longer a dependency.
+- **Capture refuses secrets.** `chezmoi add` runs with `--secrets error`. chezmoi's
+  default only warns and adds anyway, and the warning went to `/dev/null`, so a
+  token in a managed file was committed and one press later pushed. The path is
+  now reported as *could not capture* with chezmoi's reason.
+- **Ignore writes literal paths only.** `.chezmoiignore` is a template and a glob
+  list, so a path holding template or glob syntax is refused instead of written.
+- **Apply and Ignore act on the drifted path itself**, not the copy cleaned up for
+  the tooltip: a name with `&`, `<` or `>`, or one longer than 200 characters, no
+  longer becomes a different path.
+- **IPC can no longer act without a click.** `commitWith`, `push`, `ignoreNow`,
+  `applySourceNow` and `undoNow` are gone; `ignore`, `applySource` and `undo`
+  only arm the confirm. `settingsSet` and `settingsApply` take `checkSeconds` and
+  `whenClean` only: `sourceDir` over IPC would make the next check run another
+  tree's templates.
+- **Differs from /etc/skel.** The panel lists the chezmoi-managed files that differ
+  from the defaults a new account starts from, which is where Omarchy ships its
+  own; **Full details** shows the diffs. They are customisation, not drift, and
+  never add to the count. The setting `skelDir` picks the tree; empty turns it off.
+- Tests run from `tests/run` and no longer depend on the original author's paths.
 
 ## 1.2.1
 
