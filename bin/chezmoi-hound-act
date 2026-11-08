@@ -285,11 +285,14 @@ case "$action" in
                     ;;
             esac
 
-            if chez add "$HOME/$path" >/dev/null 2>&1; then
+            # chezmoi's own default only warns about a secret and adds it anyway,
+            # and nobody reads that warning from behind a button.
+            if addout=$(chez add --secrets error "$HOME/$path" 2>&1); then
                 printf 'captured: %s\n' "$path" >>"$work/captured"
                 captured=$((captured + 1))
             else
-                printf 'could not capture: %s\n' "$path" >>"$work/left"
+                printf 'could not capture: %s (%s)\n' "$path" \
+                    "$(printf '%s' "$addout" | head -n 1 | sed "s|^chezmoi: $HOME/||")" >>"$work/left"
             fi
         done <"$work/status"
 
@@ -353,8 +356,10 @@ case "$action" in
         ignorefile=$srcdir/.chezmoiignore
         added=0
         kept=0
+        refused=0
         : >"$work/added"
         : >"$work/kept"
+        : >"$work/refused"
 
         # The paths the panel passed when it knows which ones it showed; the
         # drifting targets here otherwise, which is the list the button was
@@ -375,6 +380,15 @@ case "$action" in
             # Leading slash on purpose only when the caller sent one: patterns in
             # this file are target paths as chezmoi writes them, without it.
             p=${p#./}
+            # .chezmoiignore is a template and each line a glob: a path holding
+            # that syntax would run on every check, or ignore more than itself.
+            case "$p" in
+                *[][*?{}\\]* | '!'* | '#'*)
+                    printf 'not a literal path, left alone: %s\n' "$p" >>"$work/refused"
+                    refused=$((refused + 1))
+                    continue
+                    ;;
+            esac
             if [ -f "$ignorefile" ] && grep -Fxq -- "$p" "$ignorefile" 2>/dev/null; then
                 printf 'already in .chezmoiignore: %s\n' "$p" >>"$work/kept"
                 kept=$((kept + 1))
@@ -386,13 +400,15 @@ case "$action" in
 
         if [ "$added" -eq 0 ]; then
             echo "nothing to ignore: those paths are already in .chezmoiignore"
-            cat "$work/kept"
+            cat "$work/kept" "$work/refused"
+            [ "$refused" -eq 0 ] || exit 1
             exit 0
         fi
 
         if [ -n "$dry" ]; then
             printf 'dry run: %s path(s) would be added to %s\n' "$added" "$ignorefile"
-            cat "$work/added" "$work/kept"
+            cat "$work/added" "$work/kept" "$work/refused"
+            [ "$refused" -eq 0 ] || exit 1
             exit 0
         fi
 
@@ -413,6 +429,10 @@ case "$action" in
         printf 'added %s path(s) to %s\n' "$added" "$ignorefile"
         cat "$work/added" "$work/kept"
         echo "chezmoi no longer manages them; .chezmoiignore itself is uncommitted in the repo"
+        if [ "$refused" -gt 0 ]; then
+            cat "$work/refused"
+            exit 1
+        fi
         ;;
 
     apply)
