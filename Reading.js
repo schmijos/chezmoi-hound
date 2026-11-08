@@ -31,7 +31,7 @@ function parse(raw) {
 
   var lines = text.split("\n")
   var home = -1, repo = -1, unpushed = -1, total = -1
-  var detail = [], commits = [], repoDetail = [], notes = [], recent = []
+  var detail = [], detailPaths = [], commits = [], repoDetail = [], notes = [], recent = []
   var src = "", branch = "", upstream = "", stamp = "", problem = ""
 
   for (var i = 0; i < lines.length; i++) {
@@ -45,7 +45,10 @@ function parse(raw) {
     else if (key === "repo") repo = countOf(value)
     else if (key === "unpushed") unpushed = countOf(value)
     else if (key === "total") total = countOf(value)
-    else if (key === "file") { if (detail.length < 8) detail.push(plain(value)) }
+    else if (key === "file") {
+      // Shown cleaned up; acted on exactly as chezmoi reported it.
+      if (detail.length < 8) { detail.push(plain(value)); detailPaths.push(value) }
+    }
     else if (key === "commit") { if (commits.length < 8) commits.push(plain(value)) }
     else if (key === "repofile") { if (repoDetail.length < 8) repoDetail.push(plain(value)) }
     else if (key === "recent") {
@@ -78,6 +81,7 @@ function parse(raw) {
   out.unpushed = unpushed
   out.total = total
   out.detail = detail
+  out.detailPaths = detailPaths
   out.commits = commits
   out.repoDetail = repoDetail
   out.recent = recent

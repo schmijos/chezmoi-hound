@@ -70,6 +70,7 @@ Panel {
   property int unpushed: 0
   property int total: 0
   property var detail: []
+  property var detailPaths: []        // `detail` as chezmoi reported it, for actions
   property var commits: []
   property var repoDetail: []
   property var recentCommits: []      // "<sha>  <subject>", newest first
@@ -136,6 +137,7 @@ Panel {
     root.unpushed = r.unpushed
     root.total = r.total
     root.detail = r.detail
+    root.detailPaths = r.detailPaths
     root.commits = r.commits
     root.repoDetail = r.repoDetail
     root.recentCommits = r.recent
@@ -255,8 +257,8 @@ Panel {
       // against, and a list the person can see before pressing is worth more
       // than one it works out.
       args = [what]
-      for (var i = 0; i < root.detail.length; i++) {
-        var p = String(root.detail[i]).replace(/^\s+/, "")
+      for (var i = 0; i < root.detailPaths.length; i++) {
+        var p = String(root.detailPaths[i])
         if (p !== "") args.push("--path", p)
       }
     } else {
