@@ -58,14 +58,6 @@ Panel {
   // introduces. They take the full-strength foreground here.
   readonly property color sectionTitleColor: root.bar.foreground
 
-  // The AI CLI that may write a commit message. Empty means "whichever one is
-  // installed and logged in here", which the act script resolves and reports
-  // back; naming one forces it, authenticated or not.
-  readonly property string aiCommand: String(setting("aiCommand", "")).replace(/^\s+|\s+$/g, "")
-  // The button's name has to match the command that will actually run, whether
-  // that came from this panel's own field or from `omarchy bar set` outside it.
-  onAiCommandChanged: root.probeAi()
-
   // ---- the plugin's own scripts ------------------------------------------
   // Resolved next to this file, because a plugin that shells out to something
   // in one user's ~/.local/bin only works on the machine it was written on.
@@ -111,23 +103,18 @@ Panel {
   // ---- the commit message -------------------------------------------------
   // A commit only says something if a person wrote it, so the button opens an
   // entry rather than firing a commit with wording nobody chose. The entry
-  // arrives empty and stays that way unless someone types in it or asks an agent
-  // to write it: nothing the script can work out on its own is offered as a
-  // substitute message.
+  // arrives empty and stays that way unless someone types in it.
   property bool asking: false         // the message entry is open
   // Which drift section that entry is open in: "home" for what was edited here,
   // "repo" for what is uncommitted in the source tree. One entry, and it lives
   // in the section whose button asked for it.
   property string askWhere: "home"
-  property bool suggesting: false     // a suggestion call is in flight
-  property string aiCli: ""           // the CLI that can write one, "" for none
   property string lastMessage: ""     // what the last commit was told to say
   // The undo confirm. `undoRow` is what is on screen and is dropped the moment
   // the confirm is pressed; `undoSha` is what the script is told, and outlives it
   // so that retry re-runs the same commit rather than an empty one.
   property string undoRow: ""
   property string undoSha: ""
-  property string suggestHint: ""     // one line under the entry, on what it holds
   property bool settingsOpen: false   // the widget's own options are showing
   // The ignore confirm. It has no entry: the paths are already named under the
   // button, so the confirm says what will be written and nothing else.
@@ -287,10 +274,6 @@ Panel {
     for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
     entry[key] = value
     root.settings = entry
-    // The button names the agent that will answer it, so replacing that setting
-    // re-probes now instead of waiting for the next panel open: the button is the
-    // status, and one naming the CLI you just replaced is worse than none.
-    if (key === "aiCommand") root.probeAi(value)
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function") {
       root.bar.shell.updateEntryInline(root.moduleName, entry)
       return
@@ -388,14 +371,12 @@ Panel {
     root.undoRow = ""
     root.askWhere = where === "repo" ? "repo" : "home"
     root.asking = true
-    root.suggestHint = ""
     messageField.text = ""
     messageField.forceActiveFocus()
   }
 
   function cancelCommit() {
     root.asking = false
-    root.suggestHint = ""
     messageField.text = ""
   }
 
@@ -443,38 +424,6 @@ Panel {
     root.runAction("apply")
   }
 
-  // Which CLI could write a message. Asked of the script rather than guessed from
-  // the setting, because a command that is set but not installed must not put a
-  // button on screen that can only fail. Called when the panel opens, and again
-  // whenever that setting changes: the button carries this name as its status, so
-  // a button naming the CLI you just replaced is worse than no status at all.
-  function probeAi(aiOverride) {
-    if (probeProc.running) return
-    var ai = aiOverride === undefined ? root.aiCommand : String(aiOverride)
-    var args = [root.actScript, "suggest", "--probe"]
-    if (ai !== "") args.push("--ai", ai)
-    probeProc.command = withSource(args)
-    probeProc.running = true
-  }
-
-  // Asking an AI for wording is its own button, so a suggestion is always
-  // something a person asked for: no keystroke of the entry sends the diff
-  // anywhere by itself.
-  function suggestMessage() {
-    if (suggestProc.running || root.aiCli === "" || root.running !== "") return
-    root.suggesting = true
-    // In flight is the button's business - it already reads "Asking <cli>…".
-    // The line under the entry is for what came back (who wrote it, or why
-    // nobody did), so it stays empty until there is something to say.
-    root.suggestHint = ""
-    var args = [root.actScript, "suggest"]
-    if (root.aiCommand !== "") args.push("--ai", root.aiCommand)
-    // 150s: a one-shot agent call is slow the first time and there is a timeout
-    // inside this one as well, so the button always comes back.
-    suggestProc.command = withSource(["/usr/bin/timeout", "-k", "2", "150"].concat(args))
-    suggestProc.running = true
-  }
-
   // The commit itself, carrying the field's text exactly as it reads. An empty
   // entry commits with an empty message: the script passes
   // --allow-empty-message, so the commit holds the blank the person left rather
@@ -483,7 +432,6 @@ Panel {
     if (root.running !== "" || actionProc.running) return
     root.lastMessage = messageField.text
     root.asking = false
-    root.suggestHint = ""
     root.runAction("commit")
   }
 
@@ -670,59 +618,6 @@ Panel {
     }
   }
 
-  // ---- the message entry's three processes ---------------------------------
-  //
-  // Two questions, one script: is there anything here that could write a message,
-  // and what would an AI write. Separate processes because they are separate
-  // questions, and only the last can take seconds.
-  Process {
-    id: probeProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var answer = String(text || "").trim()
-        var found = answer.match(/^ai=(.+)$/)
-        root.aiCli = found && found[1] !== "none" ? found[1] : ""
-      }
-    }
-    onExited: function (exitCode, exitStatus) {
-      if (exitCode !== 0) root.aiCli = ""
-    }
-  }
-
-  // The suggestion call. It reports on stderr which of the three things happened
-  // - a CLI wrote the message, no CLI is available here, or the CLI did not
-  // answer - so the line under the entry never credits an AI for wording it did
-  // not write, and a failed call is said out loud rather than papered over with
-  // a message the script made up.
-  Process {
-    id: suggestProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var answer = String(text || "").trim()
-        if (answer !== "") messageField.text = answer
-      }
-    }
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var marker = String(text || "")
-        var wrote = marker.match(/HOUND-SUGGEST ai=(.+)/)
-        var failed = marker.match(/HOUND-SUGGEST failed=(\S+)(?: status=(\S+))?/)
-        if (wrote) root.suggestHint = "Written by " + wrote[1].trim() + " - read it before committing."
-        else if (failed) root.suggestHint = failed[1] + " could not write one"
-                                                 + (failed[2] && failed[2] !== "0" ? " (exit " + failed[2] + ")" : "")
-                                                 + "; the entry is yours to fill."
-        else root.suggestHint = "No AI CLI here answered; the entry is yours to fill."
-      }
-    }
-    onExited: function (exitCode, exitStatus) {
-      root.suggesting = false
-      if (exitCode !== 0) root.suggestHint = "The suggestion run exited " + exitCode + "."
-    }
-  }
-
   // The panel: the drift, then the commits, then the actions and this widget's
   // own options. Everything it shows comes from the cache, so opening it costs
   // nothing.
@@ -736,23 +631,16 @@ Panel {
     contentWidth: panel.fittedContentWidth(Style.space(420))
     contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
-    // The one thing worth asking the filesystem when the panel opens: whether
-    // anything here could write the commit message. A couple of PATH lookups, so
-    // it runs every time, and a CLI logged in since is picked up without a
-    // restart. Closing forgets any half-typed message.
+    // Closing forgets any half-typed message.
     onOpenChanged: {
       if (!open) {
         root.asking = false
-        root.suggestHint = ""
         messageField.text = ""
         // An armed undo confirm is a question about a row that is no longer on
         // screen, so closing drops it. The target stays: Retry is still the last
         // action that ran.
         root.undoRow = ""
-        return
       }
-      if (probeProc.running) return
-      root.probeAi()
     }
 
     PanelKeyCatcher {
@@ -762,7 +650,7 @@ Panel {
       // way: the catcher takes keys on Keys.BeforeItem, so Escape has to reach
       // the field to cancel the entry and Return has to reach it to commit.
       blocked: messageField.activeFocus || sourceField.activeFocus
-               || checkField.field.activeFocus || aiField.activeFocus
+               || checkField.field.activeFocus
       onCloseRequested: root.close()
 
       Column {
@@ -1229,8 +1117,7 @@ Panel {
 
         // ---- the commit message ----
         // A step in the commit, not a mode of the panel: it arrives empty, and
-        // the only things that ever fill it are the person at the keyboard and a
-        // suggestion they asked for. It is the only place a suggestion lands.
+        // the only thing that ever fills it is the person at the keyboard.
         Column {
           id: messageEntry
           // Placed in the section that asked for it, so the entry arrives under
@@ -1339,20 +1226,6 @@ Panel {
               bordered: true
               onClicked: root.commitNow()
             }
-            // Only present when something could answer it: a button that can
-            // only fail is worse than no button.
-            Button {
-              visible: root.aiCli !== ""
-              text: root.suggesting ? "Asking " + root.aiCli + "…" : "Suggest with " + root.aiCli
-              foreground: root.bar.foreground
-              fontFamily: root.bar.fontFamily
-              fontSize: Style.font.bodySmall
-              horizontalPadding: Style.spacing.controlPaddingX
-              verticalPadding: Style.spacing.controlPaddingY
-              bordered: true
-              opacity: root.suggesting ? 0.45 : 1
-              onClicked: root.suggestMessage()
-            }
             Button {
               text: "Cancel"
               foreground: root.bar.foreground
@@ -1365,27 +1238,12 @@ Panel {
             }
           }
 
-          // Who wrote the sentence above, said plainly: a suggestion must not
-          // look hand-typed, and a generation that failed must not be mistaken
-          // for one that came back empty-handed.
-          Text {
-            width: parent.width
-            visible: root.suggestHint !== ""
-            textFormat: Text.PlainText
-            text: root.suggestHint
-            color: root.bar.foreground
-            opacity: 0.7
-            wrapMode: Text.WordWrap
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.bodySmall
-          }
-
           // What an empty entry does, said before the button is pressed rather
           // than discovered in the log afterwards: the commit goes through with
           // no message at all.
           Text {
             width: parent.width
-            visible: messageField.text === "" && root.suggestHint === ""
+            visible: messageField.text === ""
             textFormat: Text.PlainText
             text: "Blank - pressing Commit writes a commit with no message."
             color: root.bar.foreground
@@ -1487,30 +1345,6 @@ Panel {
             fontFamily: root.bar.fontFamily
             fontSize: Style.font.bodySmall
             onModified: root.saveSetting("checkSeconds", value)
-          }
-
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: "AI command a suggestion runs"
-            color: root.bar.foreground
-            opacity: 0.6
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.bodySmall
-          }
-
-          TextField {
-            id: aiField
-            width: parent.width
-            text: root.aiCommand
-            placeholderText: "Uses the default Omarchy agent unless overridden here."
-            foreground: root.bar.foreground
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            verticalPadding: Style.spacing.controlPaddingY
-            Keys.onReturnPressed: root.saveSetting("aiCommand", aiField.text)
-            Keys.onEnterPressed: root.saveSetting("aiCommand", aiField.text)
-            onEditingFinished: root.saveSetting("aiCommand", aiField.text)
           }
 
           Row {
@@ -1616,7 +1450,6 @@ Panel {
         + " result=" + (root.result === "" ? "none" : root.result)
         + " lastAction=" + (root.lastAction === "" ? "none" : root.lastAction)
         + " asking=" + root.asking + " where=" + root.askWhere
-        + " ai=" + (root.aiCli === "" ? "none" : root.aiCli)
         + " msgChars=" + root.lastMessage.length
         + " stamp=" + root.stamp
         + " text=" + root.countText() + " badgeW=" + Math.round(badge.width)
@@ -1630,10 +1463,8 @@ Panel {
         + " driftHeader=" + driftHeader.text
         + " driftLine=" + (driftNote.visible ? "shown" : "hidden")
         + " push=" + (pushButton.visible ? "shown" : "hidden")
-        + " hint=" + (root.suggestHint === "" ? "none" : root.suggestHint)
         + " commitsTitle=" + root.commitsTitle()
         + " outcomeText=" + (root.resultText === "" ? "none" : root.resultText)
-        + " suggesting=" + root.suggesting
         + " ignoring=" + root.ignoring + " ignorable=" + root.detail.length
         + " applying=" + root.applying
     }
@@ -1658,7 +1489,6 @@ Panel {
         + " ignoring=" + root.ignoring
         + " applying=" + root.applying
         + " entryIn=" + (messageEntry.parent === repoSection ? "repo" : "drift")
-        + " ai=" + (root.aiCli === "" ? "none" : root.aiCli)
         + " settingsOpen=" + root.settingsOpen
         + " query=" + panel.fittedContentWidth(Style.space(420))
         + "x" + panel.fittedContentHeight(column.implicitHeight)
@@ -1668,9 +1498,6 @@ Panel {
     // section is named, so the entry's other home can be exercised without a
     // hand on the mouse: "repo" opens it under the repo's own button.
     function commit(where: string): void { root.askCommit(where) }
-    // The suggestion is a button too; this is the scriptable path to the same
-    // thing, for an agent or a keybind.
-    function suggest(): void { root.suggestMessage() }
 
     // Commit with a message decided elsewhere, which is the same path the entry's
     // Commit button takes: the message is what runAction hands the script.
@@ -1757,8 +1584,6 @@ Panel {
     detailProc.signal(15)
     checkProc.signal(15)
     actionProc.signal(15)
-    probeProc.signal(15)
-    suggestProc.signal(15)
     saveProc.signal(15)
   }
 }

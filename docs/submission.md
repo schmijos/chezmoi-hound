@@ -35,7 +35,7 @@ do:
 - **Push** what the remote has not seen — the branch's existing upstream, nothing
   else.
 - **Capture and commit** what this machine has edited, with a commit message you
-  write, or one your own coding agent writes on request from the diff.
+  write.
 - **Add to .chezmoiignore** for the paths that were never dotfiles: they stop
   being managed and counted, and nothing in your home is touched.
 - **Apply the source** for a file chezmoi generates itself, which cannot be
@@ -66,8 +66,6 @@ omarchy plugin remove io.github.dadofsambonzuki.chezmoi-hound --yes
 - `chezmoi` v2 — reads the drift in `$HOME` (`chezmoi status`, `chezmoi source-path`)
   and writes it back for the apply action (`chezmoi apply`)
 - `git` — the source repo's working tree and its unpushed commits
-- optional: `bubblewrap`, which the suggestion leg requires before it will run an
-  agent at all
 
 No `jq`, no cache file, no timer, nothing in a user's `~/.local/bin`: the plugin
 ships its own scripts and runs them itself.
@@ -95,6 +93,3 @@ visible — they only appear when there is something to act on.
   overwritten.
 - Templates (`*.tmpl`) are reported and never captured automatically: the source
   version of one is a template, not the rendered output.
-- The suggestion leg runs each supported agent with its tools off inside an
-  allowlist sandbox, and passes exactly one credential — the one its chosen
-  transport needs.

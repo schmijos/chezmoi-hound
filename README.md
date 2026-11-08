@@ -21,7 +21,7 @@ The number on the bar = home + repo + unpushed.
 
 <img src="preview.png" width="50%" alt="The Chezmoi Hound panel with drift: the drifting paths and the three answers to them (capture and commit, add to .chezmoiignore, apply the source), the repo's own uncommitted paths, the latest commits, and the footer actions">
 
-Clicking the number shows you a list of the drifted files and/or local commits, enabling you to commit the drift and/or push the changes. Omarchy Hound can also use your local AI agent to author the commit message based on the scope of the change.
+Clicking the number shows you a list of the drifted files and/or local commits, enabling you to commit the drift and/or push the changes.
 
 ## Install
 
@@ -52,18 +52,9 @@ External dependencies, all of which an Omarchy machine already has:
 | [`chezmoi`](https://www.chezmoi.io/) | reads the drift in `$HOME` | any v2 (`chezmoi status`, `chezmoi source-path`) |
 | `git` | the source repo's working tree and its unpushed commits | any |
 | `omarchy-launch-floating-terminal-with-presentation` | the panel's **Full details** button | ships with Omarchy |
-| [`bubblewrap`](https://github.com/containers/bubblewrap) | the sandbox a **Suggest** run happens inside — **Suggest** does not run without it | any with overlays (`--overlay-src` + `--tmp-overlay`) |
 
 There is no dependency on `jq`, on a systemd timer, or on anything in
 `~/.local/bin`: the widget ships its own two scripts and runs them itself.
-
-`bubblewrap` matters only to **Suggest**, and it is required there rather than
-recommended: a suggestion runs inside a filesystem namespace that holds the
-machine's runtime, the agents' own runtimes, and the agent's own state — and
-nothing else of yours, with an empty home put on first. The agents are also asked
-to work in their own no-tools or read-only modes, but a request is not an
-enforcement, and **Suggest** has no unsandboxed path: without `bubblewrap` the
-button is not offered at all.
 
 ## Remove
 
@@ -83,7 +74,6 @@ layout in `~/.config/omarchy/shell.json`, which Omarchy writes itself.
 | **chezmoi source directory** | *(empty)* | Empty means "chezmoi's own configured source". Set it when the tree is one you pass to `chezmoi --source`. |
 | **Re-check every (seconds)** | `300` | How often the widget re-reads the drift. 60–3600; a lower value costs more `chezmoi status` runs, not more network — this plugin never fetches. |
 | **When everything is in sync** | `Hide` | Hide keeps a permanent zero off the bar. Show leaves the count visible always — a zero is drawn in the same colour as any other count, so it reads as a number rather than as a faded widget. |
-| **AI command for commit messages** | *(empty)* | Empty uses this machine's default coding agent — the one `omarchy default agent` reports. Set it to pin one agent (say `codex`), or to use a command of your own. |
 
 ## Using it
 
@@ -96,7 +86,6 @@ layout in `~/.config/omarchy/shell.json`, which Omarchy writes itself.
 | **Capture and commit** | opens a **blank commit message** entry, then `chezmoi add` each edited target and one local commit |
 | **Add to .chezmoiignore** | the other answer to the same list: after a confirm, the named targets go into the source's `.chezmoiignore` so chezmoi stops managing and counting them. Nothing in your home is touched — see below |
 | **Apply the source** | the third answer, and the one for a file chezmoi generates itself: after a confirm, the source's version of the named targets goes back into your home. The only action here that writes to your home — an edited path is reported, not overwritten |
-| **Suggest** | asks your default agent to write the message from the diff. Only shown when an agent can answer it, and only ever called by that button |
 | **undo** arrow on a commit row | takes that commit back, after asking: it repeats the row and says what taking it back means for it |
 
 The action buttons only appear when there is something for them to do: **Capture
@@ -151,51 +140,6 @@ did not choose. Opening it commits nothing, and the entry arrives blank: nothing
 is written for you, and pressing **Commit** on an empty entry writes a commit
 with no message at all, which the panel says under the entry beforehand.
 
-**Suggest with <agent>** asks your default agent to write the message from the
-diff.
-
-The line under the entry says what came back: a suggestion is credited to the
-agent that wrote it, and a run that produced nothing usable says so and leaves
-the entry as you left it. Nothing leaves the machine unless you press **Suggest**.
-
-The agent is asked to work with its tools off — `claude --tools ''`, `codex exec
--s read-only`, `gemini --approval-mode plan`, `opencode run --agent plan`,
-`hermes -t todo`, plus a deny-everything policy for `gemini`, a config with its
-plugin tools stripped for `codex`, and a plugin that rejects tool calls for
-`opencode` — and runs inside a `bubblewrap` namespace, which is required:
-the allowlist is the machine's runtime (`/usr`, `/etc`, `/opt`), the agents' own
-runtimes (`~/.local/share/mise`, `~/.local/share/uv`, and for `hermes` its tool
-store under `~/.hermes/tools`), the resolver file, `/proc`,
-`/dev` and an empty directory as its working directory. `$HOME` itself is empty —
-each agent's state directory is re-created empty too, and only the single
-credential file a run needs to authenticate is put back into it, so the session
-files, request dumps and logs that live beside it are not in the namespace.
-`hermes` needs more than its state directory put back, because it resolves its own
-interpreter and its dependency generation out of `$HOME/.hermes` and leases the
-generation it activates: its tool store is bound read-only, and its install state
-is overlaid — `--overlay-src` on the machine's tree with `--tmp-overlay` on the
-same path — so every lock, marker and lease a run writes lands in an invisible
-tmpfs of the run's own and nothing on the machine is touched.
-Your ssh keys, `gh` credentials,
-keyrings, `chezmoi` config, projects and documents are not in the namespace to be
-read at all, and the environment is cleared: the agent gets `PATH`, `HOME`, `TERM`,
-`LANG`, `TMPDIR` and the one credential its own transport takes — `ANTHROPIC_API_KEY`
-for `claude`, `OPENAI_API_KEY` for `codex`, `GEMINI_API_KEY` for `gemini`, none at all
-for `opencode`, which authenticates from its `auth.json`, and for `hermes` the
-variable its configured provider names, taken as that single line out of
-`~/.hermes/.env` — not the shell's exported tokens or its ssh agent socket. Another
-provider's key being in the parent environment, or sitting in that `.env` beside
-hermes', is not a reason to hand it to the agent: the transport is decided first,
-and one credential follows from it. Reading is disclosure, which is why read-only was not enough here.
-`hermes` is additionally given `HERMES_DISABLE_LAZY_INSTALLS=1`: it cannot
-establish that the dependency generation it was handed is current — the one thing
-it would normally settle by installing — so without it every press takes the
-source-update path and says so on stderr. The flag means "run with what is here",
-which is what this leg is.
-Network stays up, because the agent needs its own provider. The diff arrives
-fenced and labelled as untrusted data: a dotfile can have come from anywhere, and
-a line in one is read by whatever runs next.
-
 ### What a commit and a push will and will not do
 
 - **Commit** captures targets whose state is `M` (modified here) or `A` (new
@@ -220,7 +164,7 @@ The plugin is two POSIX `sh` scripts plus one QML file:
 | --- | --- |
 | `BarWidget.qml` | the badge, the panel, and the clock that re-reads the drift |
 | `bin/chezmoi-hound-check` | reads the drift, prints it in a line protocol |
-| `bin/chezmoi-hound-act` | runs the actions, and writes the commit message |
+| `bin/chezmoi-hound-act` | runs the actions |
 
 - The scripts are invoked directly, **not through a shell**, from the plugin's
   own directory — they are resolved relative to `BarWidget.qml`, so the plugin
@@ -228,23 +172,10 @@ The plugin is two POSIX `sh` scripts plus one QML file:
 - They run `chezmoi status`, `chezmoi source-path`, `chezmoi add`, and plain
   `git` inside your source repo. Nothing else: nothing runs with escalated
   privileges, there is no `eval`, nothing is written outside the source repo, and
-  nothing else touches the network — the one thing here that leaves the machine
-  is a **Suggest** run, to your agent's own provider.
+  nothing touches the network except **Push**.
 - A malformed or failed reading leaves the previous number on screen and says why
   in the panel; it never empties the badge or invents a number.
 - A reading is refused outright unless the three counts add up to the total.
-- **Suggest** is the only part that runs anything beyond `chezmoi` and `git`: it
-  pipes the drift to your default agent's *non-interactive* mode — `hermes -z`,
-  `claude -p`, `codex exec`, `gemini -p`, `opencode run` — and does nothing at
-  all when your agent is not one of those. The agent is given no tools to act
-  with, and runs in a `bubblewrap` namespace holding nothing of yours beyond that
-  agent's own credential file and its own runtime; without `bubblewrap` there is no
-  **Suggest** leg. It runs in
-  a directory of its own rather than in the tree it is describing, under a
-  timeout, and if it answers with nothing usable the entry stays as you left it.
-  It cannot commit anything: it fills the entry, and the commit still needs the
-  button.
-
 Read `bin/chezmoi-hound-check` and `bin/chezmoi-hound-act` — they are short, and
 the comments say why each rule exists.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.0
+
+- **The AI commit-message leg is gone.** **Suggest**, the `aiCommand` setting, the
+  `suggest` action and its `bubblewrap` sandbox are removed. The message entry is
+  filled by the person committing and nothing else, and nothing leaves the machine
+  except **Push**. `bubblewrap` is no longer a dependency.
+
 ## 1.2.1
 
 - **A generation hermes has not leased yet no longer kills the leg.** 1.1.8 gave the
