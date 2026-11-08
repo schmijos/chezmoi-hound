@@ -32,6 +32,9 @@
 #   recent   <sha> <when> <subject>  commit in the source repo: the last five,
 #                                    or every commit the remote has not seen
 #                                    when there are more than five (ceiling 20)
+#   skeldir  <dir>           the skel compared against  (absent when not compared)
+#   skel     <count>         managed files that differ from it - not in the total
+#   skelfile <path>          one of them, relative to $HOME     (up to --limit)
 #   note     <text>          something worth saying, not an error
 #   error    <text>          the reading is incomplete
 #
@@ -42,6 +45,8 @@
 #                  configured one (the tree you otherwise pass to
 #                  `chezmoi --source DIR`)
 #   --limit N      cap on items listed per section (default 10)
+#   --skel DIR     the defaults a new account starts from (default /etc/skel,
+#                  where Omarchy ships them); empty turns the comparison off
 #   --render       print the reading as text instead, for a human to read
 
 set -u
@@ -49,12 +54,14 @@ set -u
 LIMIT=10
 SRC=""
 RENDER=0
+SKEL=/etc/skel
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --source) SRC="${2:-}"; shift 2 ;;
         --limit)  LIMIT="${2:-10}"; shift 2 ;;
         --render) RENDER=1; shift ;;
+        --skel)   SKEL="${2-}"; shift; [ $# -gt 0 ] && shift ;;
         *) shift ;;
     esac
 done
@@ -113,6 +120,37 @@ else
     fail "chezmoi status failed: $(head -n 1 "$work/status.err" 2>/dev/null)"
 fi
 
+# ---- differs from the skel ---------------------------------------------------
+# A managed file that differs from the default a new account gets is
+# customisation, not drift: it is listed and counted on its own and never added
+# to the total. Only files both trees have are compared - a default never taken
+# up, or a file of your own, is not a difference from the default.
+skel=0
+skel_on=0
+if [ -n "$SKEL" ] && [ -d "$SKEL" ]; then
+    if chez managed --include files --path-style relative >"$work/managed" 2>/dev/null; then
+        skel_on=1
+        : >"$work/skelpaths"
+        while IFS= read -r rel; do
+            [ -n "$rel" ] || continue
+            [ -f "$SKEL/$rel" ] && [ -f "$HOME/$rel" ] || continue
+            cmp -s "$SKEL/$rel" "$HOME/$rel" && continue
+            skel=$((skel + 1))
+            printf '%s\n' "$rel" >>"$work/skelpaths"
+        done <"$work/managed"
+    else
+        printf 'note\tchezmoi could not list its managed files, so nothing was compared with %s\n' "$SKEL" >>"$work/notes"
+    fi
+fi
+
+skel_records() {
+    [ "$skel_on" = 1 ] || return 0
+    printf 'skeldir\t%s\nskel\t%s\n' "$SKEL" "$skel"
+    head -n "$LIMIT" "$work/skelpaths" | while IFS= read -r rel; do
+        printf 'skelfile\t%s\n' "$rel"
+    done
+}
+
 # ---- 2. the source repo's own working tree, 3. and what it has not pushed ---
 repo=0
 unpushed=0
@@ -125,7 +163,8 @@ if ! git -C "$srcdir" rev-parse --git-dir >/dev/null 2>&1; then
     printf 'stamp\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
     printf 'source\t%s\n' "$srcdir"
     printf 'home\t%s\nrepo\t0\nunpushed\t0\ntotal\t%s\n' "$home" "$home"
-    [ -s "$work/files" ] && cat "$work/files"
+    skel_records
+    cat "$work/files" "$work/notes" 2>/dev/null
     exit 0
 fi
 
@@ -146,7 +185,7 @@ if [ -n "$upstream" ]; then
             [ -n "$c" ] && printf 'commit\t%s\n' "$c" >>"$work/commits"
         done
 else
-    printf 'note\t%s has no upstream, so nothing can be reported as unpushed\n' "${branch:-the branch}" >"$work/notes"
+    printf 'note\t%s has no upstream, so nothing can be reported as unpushed\n' "${branch:-the branch}" >>"$work/notes"
 fi
 
 # ---- 4. where the repo has just been ---------------------------------------
@@ -194,6 +233,18 @@ if [ "$RENDER" = 1 ]; then
         printf '\n$HOME, the source and the remote all agree. Nothing to do.\n'
     fi
 
+    if [ "$skel" -gt 0 ]; then
+        printf '\nDiffers from %s (%s) - your changes to the defaults, not drift:\n' "$SKEL" "$skel"
+        while IFS= read -r rel; do
+            printf '\n  %s\n' "$rel"
+            diff -u --label "$SKEL/$rel" --label "$HOME/$rel" "$SKEL/$rel" "$HOME/$rel" >"$work/skeldiff"
+            sed -n '1,80s/^/    /p' "$work/skeldiff"
+            if [ "$(wc -l <"$work/skeldiff")" -gt 80 ]; then
+                printf '    ... the rest: diff -u %s %s\n' "$SKEL/$rel" "$HOME/$rel"
+            fi
+        done <"$work/skelpaths"
+    fi
+
     cat "$work/notes" 2>/dev/null | sed 's/^note\t/note: /'
     exit 0
 fi
@@ -207,6 +258,7 @@ printf 'home\t%s\n' "$home"
 printf 'repo\t%s\n' "$repo"
 printf 'unpushed\t%s\n' "$unpushed"
 printf 'total\t%s\n' "$total"
+skel_records
 
 cat "$work/files" "$work/commits" "$work/recent" "$work/repofiles" "$work/notes" 2>/dev/null
 

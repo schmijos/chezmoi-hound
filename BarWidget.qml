@@ -53,6 +53,11 @@ Panel {
 
   readonly property bool showWhenClean: String(setting("whenClean", "Hide")) === "Show"
 
+  // The defaults a new account starts from; Omarchy ships its own there. Empty
+  // turns the comparison off.
+  readonly property string skelDir: String(setting("skelDir", "/etc/skel")).replace(/^\s+|\s+$/g, "")
+  onSkelDirChanged: root.refresh()
+
   // Section titles. The shared PanelSectionHeader is bold already - what made
   // these read weakly was its default colour, dimmed 1.4x to sit under a hero
   // this panel no longer has, which left a title the same grey as the rows it
@@ -81,6 +86,11 @@ Panel {
   property string upstream: ""
   property string problem: ""
   property bool everLoaded: false
+  // Managed files that differ from the skel: customisation, not drift, so never
+  // part of `total` or the badge.
+  property int skelCount: 0
+  property var skelDetail: []
+  property string skelDirShown: ""
 
   // ---- action state -------------------------------------------------------
   // Which action is in flight ("" when idle). While one runs the buttons are
@@ -146,6 +156,9 @@ Panel {
     root.branchName = r.branch
     root.upstream = r.upstream
     root.stamp = r.stamp
+    root.skelCount = r.skel
+    root.skelDetail = r.skelDetail
+    root.skelDirShown = r.skelDir
     root.problem = ""
     root.everLoaded = true
     return true
@@ -207,8 +220,8 @@ Panel {
   // nothing, which is exactly what the panel's button used to do.
   function showDetails() {
     if (detailProc.running) return
-    detailProc.command = withSource(["/usr/bin/omarchy-launch-floating-terminal-with-presentation",
-                                     root.checkScript, "--render"])
+    detailProc.command = withSkel(withSource(["/usr/bin/omarchy-launch-floating-terminal-with-presentation",
+                                              root.checkScript, "--render"]))
     detailProc.running = true
   }
 
@@ -281,6 +294,11 @@ Panel {
     var out = [].concat(args)
     if (root.sourceDir !== "") out.push("--source", root.sourceDir)
     return out
+  }
+
+  // Only the check reads the skel; the act script is never told about it.
+  function withSkel(args) {
+    return [].concat(args, ["--skel", root.skelDir])
   }
 
   // Run the last action again - the other half of a failure.
@@ -420,7 +438,7 @@ Panel {
       root.pendingRecheck = true
       return
     }
-    checkProc.command = withSource(["/usr/bin/timeout", "-k", "2", "60", root.checkScript])
+    checkProc.command = withSkel(withSource(["/usr/bin/timeout", "-k", "2", "60", root.checkScript]))
     checkProc.running = true
   }
 
@@ -600,7 +618,7 @@ Panel {
       // way: the catcher takes keys on Keys.BeforeItem, so Escape has to reach
       // the field to cancel the entry and Return has to reach it to commit.
       blocked: messageField.activeFocus || sourceField.activeFocus
-               || checkField.field.activeFocus
+               || checkField.field.activeFocus || skelField.activeFocus
       onCloseRequested: root.close()
 
       Column {
@@ -932,6 +950,54 @@ Panel {
           }
         }
 
+
+        // ---- differs from the skel ----
+        // Not drift and not counted: what you changed on top of the defaults a
+        // new account starts from. The diffs are in Full details.
+        PanelSeparator {
+          visible: root.skelCount > 0 && (root.homeCount > 0 || root.repoCount > 0)
+          foreground: root.bar.foreground
+        }
+
+        Column {
+          id: skelSection
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.skelCount > 0
+
+          PanelSectionHeader {
+            text: "DIFFERS FROM " + root.skelDirShown + " \u2014 " + root.plural(root.skelCount, "file")
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            color: root.sectionTitleColor
+          }
+
+          Repeater {
+            model: root.skelDetail
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: "  " + modelData
+              color: root.bar.foreground
+              opacity: 0.75
+              elide: Text.ElideLeft
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: (root.skelCount > root.skelDetail.length ? "…and " + (root.skelCount - root.skelDetail.length) + " more. " : "")
+              + "Your changes to the defaults, not drift, so not in the count. Full details shows the diffs."
+            color: root.bar.foreground
+            opacity: 0.7
+            wrapMode: Text.WordWrap
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+        }
 
         // The divider that used to open the panel, when a hero and a separate
         // "not pushed" list lived above this point. With both gone it belongs
@@ -1297,6 +1363,30 @@ Panel {
             onModified: root.saveSetting("checkSeconds", value)
           }
 
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "defaults to compare against"
+            color: root.bar.foreground
+            opacity: 0.6
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          TextField {
+            id: skelField
+            width: parent.width
+            text: root.skelDir
+            placeholderText: "empty: no comparison"
+            foreground: root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            verticalPadding: Style.spacing.controlPaddingY
+            Keys.onReturnPressed: root.saveSetting("skelDir", skelField.text)
+            Keys.onEnterPressed: root.saveSetting("skelDir", skelField.text)
+            onEditingFinished: root.saveSetting("skelDir", skelField.text)
+          }
+
           Row {
             width: parent.width
             spacing: Style.space(8)
@@ -1417,6 +1507,7 @@ Panel {
         + " outcomeText=" + (root.resultText === "" ? "none" : root.resultText)
         + " ignoring=" + root.ignoring + " ignorable=" + root.detail.length
         + " applying=" + root.applying
+        + " skel=" + root.skelCount + " skelDir=" + (root.skelDirShown === "" ? "none" : root.skelDirShown)
     }
 
     // Where the widget actually is on screen, so its rendering can be checked

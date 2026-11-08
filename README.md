@@ -19,6 +19,11 @@ Omarchy bar representing:
 
 The number on the bar = home + repo + unpushed.
 
+The panel also lists the chezmoi-managed files that differ from the defaults a
+new account starts from — Omarchy ships its defaults in `/etc/skel`. Those are
+your customisations, not drift, so they never add to the number. **Full
+details** shows each one's diff against the default.
+
 <img src="preview.png" width="50%" alt="The Chezmoi Hound panel with drift: the drifting paths and the three answers to them (capture and commit, add to .chezmoiignore, apply the source), the repo's own uncommitted paths, the latest commits, and the footer actions">
 
 Clicking the number shows you a list of the drifted files and/or local commits, enabling you to commit the drift and/or push the changes.
@@ -49,8 +54,9 @@ External dependencies, all of which an Omarchy machine already has:
 
 | Dependency | Why | Version |
 | --- | --- | --- |
-| [`chezmoi`](https://www.chezmoi.io/) | reads the drift in `$HOME` | any v2 (`chezmoi status`, `chezmoi source-path`) |
+| [`chezmoi`](https://www.chezmoi.io/) | reads the drift in `$HOME` | v2 with `chezmoi add --secrets` (check `chezmoi add --help`) |
 | `git` | the source repo's working tree and its unpushed commits | any |
+| `cmp`, `diff` (diffutils) | comparing managed files with `/etc/skel` | any |
 | `omarchy-launch-floating-terminal-with-presentation` | the panel's **Full details** button | ships with Omarchy |
 
 There is no dependency on `jq`, on a systemd timer, or on anything in
@@ -72,6 +78,7 @@ layout in `~/.config/omarchy/shell.json`, which Omarchy writes itself.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | **chezmoi source directory** | *(empty)* | Empty means "chezmoi's own configured source". Set it when the tree is one you pass to `chezmoi --source`. |
+| **Defaults to compare against** | `/etc/skel` | Where the panel's *Differs from* list compares managed files. Empty turns it off. |
 | **Re-check every (seconds)** | `300` | How often the widget re-reads the drift. 60–3600; a lower value costs more `chezmoi status` runs, not more network — this plugin never fetches. |
 | **When everything is in sync** | `Hide` | Hide keeps a permanent zero off the bar. Show leaves the count visible always — a zero is drawn in the same colour as any other count, so it reads as a number rather than as a faded widget. |
 
@@ -169,7 +176,7 @@ The plugin is two POSIX `sh` scripts plus one QML file:
 - The scripts are invoked directly, **not through a shell**, from the plugin's
   own directory — they are resolved relative to `BarWidget.qml`, so the plugin
   works from wherever it was installed.
-- They run `chezmoi status`, `chezmoi source-path`, `chezmoi add`, and plain
+- They run `chezmoi status`, `chezmoi source-path`, `chezmoi managed`, `chezmoi add`, and plain
   `git` inside your source repo. Nothing else: nothing runs with escalated
   privileges, there is no `eval`, nothing is written outside the source repo, and
   nothing touches the network except **Push**.

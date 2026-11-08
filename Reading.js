@@ -33,6 +33,7 @@ function parse(raw) {
   var home = -1, repo = -1, unpushed = -1, total = -1
   var detail = [], detailPaths = [], commits = [], repoDetail = [], notes = [], recent = []
   var src = "", branch = "", upstream = "", stamp = "", problem = ""
+  var skel = 0, skelDetail = [], skelDir = ""
 
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i]
@@ -64,6 +65,10 @@ function parse(raw) {
     else if (key === "branch") branch = plain(value)
     else if (key === "upstream") upstream = plain(value)
     else if (key === "stamp") stamp = value.substring(0, 32)
+    // Differences from the skel are customisation, not drift: never in the total.
+    else if (key === "skel") skel = Math.max(0, countOf(value))
+    else if (key === "skelfile") { if (skelDetail.length < 8) skelDetail.push(plain(value)) }
+    else if (key === "skeldir") skelDir = plain(value)
   }
 
   if (problem !== "") {
@@ -90,5 +95,8 @@ function parse(raw) {
   out.branch = branch
   out.upstream = upstream
   out.stamp = stamp
+  out.skel = skel
+  out.skelDetail = skelDetail
+  out.skelDir = skelDir
   return out
 }
