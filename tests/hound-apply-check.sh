@@ -15,10 +15,11 @@
 #      whole-tree apply.
 set -u
 
-ACT=${ACT:-/home/nathan-day/Projects/chezmoi-hound/bin/chezmoi-hound-act}
-SRC=${SRC:-/home/nathan-day/Projects/infra/dotfiles}
+ACT=${ACT:-$(cd "$(dirname "$0")/.." && pwd)/bin/chezmoi-hound-act}
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/hound-apply-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT INT TERM
+SRC="$WORK/src"
+git init -q "$SRC" || exit 1
 
 mkdir -p "$WORK/bin"
 cat > "$WORK/bin/chezmoi" <<'EOF'
