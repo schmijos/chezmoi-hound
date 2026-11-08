@@ -1,0 +1,20 @@
+#!/bin/sh
+# Every test and linter, from anywhere. Not bin/check: bin/ is what the plugin
+# ships, and a `check` beside chezmoi-hound-check would read as part of it.
+set -u
+cd "$(dirname "$0")/.." || exit 1
+
+failed=0
+run() {
+    printf '\n== %s\n' "$*"
+    "$@" || failed=$((failed + 1))
+}
+
+run shellcheck -s sh -S warning bin/chezmoi-hound-check bin/chezmoi-hound-act tests/*.sh tests/run
+for t in tests/*.sh; do run sh "$t"; done
+run mise x -- node tests/hound-reading-check.js
+run sh -c '/usr/lib/qt6/bin/qmlformat BarWidget.qml >/dev/null'
+run /usr/lib/qt6/bin/qml -a core tests/ReadingImport.qml
+
+printf '\n%s suite(s) failed\n' "$failed"
+[ "$failed" -eq 0 ]

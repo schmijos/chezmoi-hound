@@ -6,6 +6,7 @@ import qs.Ui
 // Qualified, and only for the multi-line entry: an unqualified
 // QtQuick.Controls import would shadow the kit's own Button and TextField.
 import QtQuick.Controls as QQC
+import "Reading.js" as Reading
 
 // Chezmoi Hound - a count of dotfile drift, and the two things it makes you
 // want to do about it.
@@ -64,11 +65,6 @@ Panel {
   readonly property string checkScript: Qt.resolvedUrl("bin/chezmoi-hound-check").toString().replace(/^file:\/\//, "")
   readonly property string actScript: Qt.resolvedUrl("bin/chezmoi-hound-act").toString().replace(/^file:\/\//, "")
 
-  // A reading is input from another process, so it is bounded in size, type-
-  // and range-checked, and a reading that disagrees with itself is rejected
-  // outright instead of shown half-believed.
-  readonly property int maxBytes: 65536
-
   property int homeCount: 0
   property int repoCount: 0
   property int unpushed: 0
@@ -123,90 +119,38 @@ Panel {
   // action here that writes to $HOME.
   property bool applying: false       // the apply-the-source confirm is open
 
-  // -1 means "the record was there but was not a count", which is different
-  // from 0 and must not be mistaken for a valid reading.
-  function countOf(value) {
-    var n = Number(String(value))
-    return (isFinite(n) && n >= 0 && n <= 100000) ? Math.floor(n) : -1
-  }
-
-  // The reading is a line protocol - "key<TAB>value", one record per line, in
-  // no particular order - so the widget needs no JSON parser and the script
-  // needs no jq.
+  // The reading is input from another process, so it is bounded in size, type-
+  // and range-checked, and a reading that disagrees with itself is rejected
+  // outright instead of shown half-believed. An error record is a complete
+  // answer: say so and keep the last reading.
   function apply(raw) {
-    var text = String(raw || "")
-    if (text.length === 0 || text.length > maxBytes) return false
-
-    var lines = text.split("\n")
-    var home = -1, repo = -1, unpushed = -1, total = -1
-    var detail = [], commits = [], repoDetail = [], notes = [], recent = []
-    var src = "", branch = "", upstream = "", stamp = "", problem = ""
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i]
-      if (line === "") continue
-      var tab = line.indexOf("\t")
-      var key = tab < 0 ? line : line.substring(0, tab)
-      var value = tab < 0 ? "" : line.substring(tab + 1)
-
-      if (key === "home") home = countOf(value)
-      else if (key === "repo") repo = countOf(value)
-      else if (key === "unpushed") unpushed = countOf(value)
-      else if (key === "total") total = countOf(value)
-      else if (key === "file") { if (detail.length < 8) detail.push(plain(value)) }
-      else if (key === "commit") { if (commits.length < 8) commits.push(plain(value)) }
-      else if (key === "repofile") { if (repoDetail.length < 8) repoDetail.push(plain(value)) }
-      else if (key === "recent") {
-        // One record, three tabs: <sha> <when> <subject>.
-        var parts = value.split("\t")
-        if (recent.length < 20 && parts.length >= 3)
-          // sha, then subject. No age: it padded the one column you are
-          // least likely to be reading, and --render still prints it.
-          recent.push(plain(parts[0] + "  " + parts[2]))
-      }
-      else if (key === "note") { if (notes.length < 4) notes.push(plain(value)) }
-      else if (key === "error") problem = plain(value)
-      else if (key === "source") src = plain(value)
-      else if (key === "branch") branch = plain(value)
-      else if (key === "upstream") upstream = plain(value)
-      else if (key === "stamp") stamp = value.substring(0, 32)
-    }
-
-    // An error record is a complete answer: say so and keep the last reading.
-    if (problem !== "") {
-      root.problem = problem
+    var r = Reading.parse(raw)
+    if (r.problem !== "") {
+      root.problem = r.problem
       return false
     }
-    // The three parts must add up; a reading that disagrees with itself is
-    // rejected rather than shown half-believed.
-    if (home < 0 || repo < 0 || unpushed < 0 || total < 0) return false
-    if (home + repo + unpushed !== total) return false
+    if (!r.ok) return false
 
-    root.homeCount = home
-    root.repoCount = repo
-    root.unpushed = unpushed
-    root.total = total
-    root.detail = detail
-    root.commits = commits
-    root.repoDetail = repoDetail
-    root.recentCommits = recent
-    root.notes = notes
-    root.reportedSource = src
-    root.branchName = branch
-    root.upstream = upstream
-    root.stamp = stamp
+    root.homeCount = r.home
+    root.repoCount = r.repo
+    root.unpushed = r.unpushed
+    root.total = r.total
+    root.detail = r.detail
+    root.commits = r.commits
+    root.repoDetail = r.repoDetail
+    root.recentCommits = r.recent
+    root.notes = r.notes
+    root.reportedSource = r.source
+    root.branchName = r.branch
+    root.upstream = r.upstream
+    root.stamp = r.stamp
     root.problem = ""
     root.everLoaded = true
     return true
   }
 
-  // bar.showTooltip renders with AutoText, which this plugin cannot pin to
-  // PlainText, so markup and control characters are stripped before handoff.
   function plain(value) {
-    return String(value)
-      .replace(/[<>&]/g, "")
-      .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
-      .substring(0, 200)
+    return Reading.plain(value)
   }
 
   function plural(count, noun) {
