@@ -57,5 +57,22 @@ check("an action acts on a long path in full, not cut at 200 characters",
 check("every listed path has the path an action uses",
   r.ok && Array.isArray(r.detailPaths) && r.detailPaths.length === r.detail.length)
 
+// Differences from the skel are customisation, not drift: they are listed on
+// their own and the total stays home + repo + unpushed.
+r = Reading.parse(reading(counts.concat([["skeldir", "/etc/skel"], ["skel", "2"],
+  ["skelfile", ".bashrc"], ["skelfile", ".config/hypr/bindings.lua"]])))
+check("a reading with skel differences still adds up without them", r.ok && r.total === 1)
+check("the skel differences are counted", r.ok && r.skel === 2)
+check("the skel differences are listed", r.ok && Array.isArray(r.skelDetail)
+  && r.skelDetail.join(",") === ".bashrc,.config/hypr/bindings.lua")
+check("the skel compared against is named", r.ok && r.skelDir === "/etc/skel")
+
+r = Reading.parse(reading(counts))
+check("a reading without skel records has no skel differences", r.ok && r.skel === 0
+  && Array.isArray(r.skelDetail) && r.skelDetail.length === 0 && r.skelDir === "")
+
+r = Reading.parse(reading(counts.concat([["skel", "lots"]])))
+check("a skel count that is not a number shows no skel differences", r.ok && r.skel === 0)
+
 console.log("\n" + pass + " ok, " + fail + " failed")
 process.exit(fail === 0 ? 0 : 1)
